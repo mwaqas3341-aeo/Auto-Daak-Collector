@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto Daak Collector</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1d2430;--card:#fff;--line:#dde1e7;--accent:#1f6feb}
+@media(prefers-color-scheme:dark){:root{--bg:#12161c;--fg:#e6e9ee;--card:#1b212a;--line:#2d3541}}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+main{max-width:960px;margin:20px auto;padding:0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card b{font-size:26px;display:block}
+input,button{padding:9px;border-radius:8px;border:1px solid var(--line);font:inherit;width:100%;box-sizing:border-box;margin-top:8px}
+button{background:var(--accent);color:#fff;border:0;cursor:pointer}
+#login{max-width:320px;margin:60px auto}#err{color:#c33;margin-top:8px}
+</style></head><body>
+<div id="login" class="card"><h3>Auto Daak Collector</h3>
+<input id="cnic" placeholder="CNIC" inputmode="numeric"><input id="pw" type="password" placeholder="A-I-DB password">
+<button id="go">Sign in</button><div id="err"></div></div>
+<div id="app" hidden><header><b>Auto Daak Collector</b><button id="out" style="width:auto">Sign out</button></header>
+<main><p>Foundation phase: read-only status. Nothing here can write to a spreadsheet.</p><div class="grid" id="cards"></div></main></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="assets/config.js"></script>
+<script>
+const C=window.APP_CONFIG,$=id=>document.getElementById(id);
+const sb=supabase.createClient(C.SUPABASE_URL||"http://invalid",C.SUPABASE_ANON_KEY||"x");
+const LABELS={detected:"Links detected",awaiting_approval:"Pending approval",approved:"Approved / awaiting application",completed:"Completed",needs_review:"Needs review",conflict:"Conflicts"};
+async function show(){
+  const {data:{session}}=await sb.auth.getSession(); $("login").hidden=!!session; $("app").hidden=!session; if(!session)return;
+  const {data,error}=await sb.from("spreadsheet_links").select("status");
+  const n={}; (data||[]).forEach(r=>n[r.status]=(n[r.status]||0)+1);
+  $("cards").innerHTML=Object.entries(LABELS).map(([k,l])=>`<div class="card"><b>${error?"-":(k==="detected"?(data||[]).length:(n[k]||0))}</b>${l}</div>`).join("");
+}
+$("go").onclick=async()=>{ $("err").textContent="";
+  try{const r=await fetch(`${C.SUPABASE_URL}/functions/v1/login`,{method:"POST",headers:{"Content-Type":"application/json",apikey:C.SUPABASE_ANON_KEY},body:JSON.stringify({cnic:$("cnic").value.trim(),password:$("pw").value})});
+  const j=await r.json(); if(!r.ok||!j.access_token)throw new Error(j.error||"Login failed");
+  await sb.auth.setSession({access_token:j.access_token,refresh_token:j.refresh_token}); show();}
+  catch(e){$("err").textContent=e.message;}};
+$("out").onclick=async()=>{await sb.auth.signOut();show();};
+show();
+</script></body></html>
