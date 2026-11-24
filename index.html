@@ -13,12 +13,32 @@ main{max-width:960px;margin:20px auto;padding:0 16px}
 input,button{padding:9px;border-radius:8px;border:1px solid var(--line);font:inherit;width:100%;box-sizing:border-box;margin-top:8px}
 button{background:var(--accent);color:#fff;border:0;cursor:pointer}
 #login{max-width:320px;margin:60px auto}#err{color:#c33;margin-top:8px}
+
+table.pv{border-collapse:collapse;font-size:13px;width:100%}
+table.pv td,table.pv th{border:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top;white-space:nowrap}
+table.pv th{background:var(--bg);font-weight:600}
+table.pv tr.hl td{background:rgba(31,111,235,.16)}
+table.pv tr.ds td{background:rgba(46,160,67,.14)}
+table.pv th.rn{cursor:pointer;color:var(--accent)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.warn{color:#b26a00;margin:6px 0}.ok{color:#2a7d3b}.muted{opacity:.7;font-size:13px}
+select{padding:9px;border-radius:8px;border:1px solid var(--line);font:inherit;width:100%;box-sizing:border-box;margin-top:8px;background:var(--card);color:var(--fg)}
 </style></head><body>
 <div id="login" class="card"><h3>Auto Daak Collector</h3>
 <input id="cnic" placeholder="CNIC" inputmode="numeric"><input id="pw" type="password" placeholder="A-I-DB password">
 <button id="go">Sign in</button><div id="err"></div></div>
 <div id="app" hidden><header><b>Auto Daak Collector</b><button id="out" style="width:auto">Sign out</button></header>
-<main><p>Foundation phase: read-only status. Nothing here can write to a spreadsheet.</p><div class="grid" id="cards"></div></main></div>
+<main><p>Read-only phase. Nothing here can write to a spreadsheet.</p><div class="grid" id="cards"></div>
+<section class="card" id="sr" style="margin-top:16px">
+<h3 style="margin-top:0">Read a sheet (read-only)</h3>
+<input id="srUrl" placeholder="Google Sheets link">
+<button id="srLoad">Load preview</button><div id="srMsg" class="muted"></div>
+<div id="srBox" hidden>
+<select id="srSheet"></select>
+<p class="muted">Click a row number to mark it as the <b>header row</b>, then set the <b>first data row</b>. Merged cells are shown joined.</p>
+<div id="srTbl" style="overflow:auto;max-height:340px"></div>
+<div class="two"><div>Header row<input id="srH" type="number" min="1" max="200"></div><div>First data row<input id="srD" type="number" min="2" max="200"></div></div>
+<button id="srMap">Check columns</button>
+<div id="srOut"></div></div></section></main></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="assets/config.js"></script>
 <script>
@@ -37,5 +57,47 @@ $("go").onclick=async()=>{ $("err").textContent="";
   await sb.auth.setSession({access_token:j.access_token,refresh_token:j.refresh_token}); show();}
   catch(e){$("err").textContent=e.message;}};
 $("out").onclick=async()=>{await sb.auth.signOut();show();};
+
+const colL=i=>{let t="",n=i+1;while(n>0){const m=(n-1)%26;t=String.fromCharCode(65+m)+t;n=Math.floor((n-1)/26);}return t;};
+const el=(tag,txt,cls)=>{const e=document.createElement(tag);if(txt!==undefined)e.textContent=txt;if(cls)e.className=cls;return e;};
+async function srCall(b){const s=(await sb.auth.getSession()).data.session;
+  const r=await fetch(`${C.SUPABASE_URL}/functions/v1/sheet-reader`,{method:"POST",headers:{"Content-Type":"application/json",apikey:C.SUPABASE_ANON_KEY,Authorization:"Bearer "+s.access_token},body:JSON.stringify(b)});
+  const j=await r.json().catch(()=>({})); if(!r.ok)throw new Error(j.error||("Request failed ("+r.status+")")); return j;}
+function srMark(){const h=+$("srH").value,d=+$("srD").value;
+  document.querySelectorAll("#srTbl tr[data-r]").forEach(tr=>{const r=+tr.dataset.r;tr.classList.toggle("hl",r===h);tr.classList.toggle("ds",r===d);});}
+function srRender(p){
+  const rows=p.preview,n=Math.max(1,...rows.map(r=>r.cells.length)),anchor={},cov={};
+  const lastRow=rows.length;
+  p.merges.forEach(m=>{for(let r=m.r1;r<=m.r2;r++)for(let c=m.c1;c<=m.c2;c++)cov[r+","+c]=1;delete cov[m.r1+","+m.c1];anchor[m.r1+","+m.c1]=m;});
+  const t=el("table",undefined,"pv"),hd=el("tr");hd.append(el("th","#"));
+  for(let c=0;c<n;c++)hd.append(el("th",colL(c)));t.append(hd);
+  rows.forEach(r=>{const tr=el("tr");tr.dataset.r=r.row;const th=el("th",String(r.row),"rn");
+    th.onclick=()=>{$("srH").value=r.row;if(+$("srD").value<=r.row)$("srD").value=r.row+1;srMark();};tr.append(th);
+    for(let c=0;c<n;c++){const k=r.row+","+c;if(cov[k])continue;const td=el("td",r.cells[c]||"");
+      const m=anchor[k];if(m){td.rowSpan=Math.min(m.r2,lastRow)-m.r1+1;td.colSpan=Math.min(m.c2,n-1)-m.c1+1;}tr.append(td);}
+    t.append(tr);});
+  $("srTbl").replaceChildren(t);
+  if(p.suggested_header_row&&!$("srH").value){$("srH").value=p.suggested_header_row;$("srD").value=p.suggested_header_row+1;}
+  srMark();}
+async function srLoad(sheet){ $("srMsg").textContent="Loading..."; $("srOut").replaceChildren();
+  try{const p=await srCall({action:"preview",url:$("srUrl").value.trim(),sheet});
+    const sel=$("srSheet");sel.replaceChildren(...p.sheets.map(s=>{const o=el("option",s.title);o.value=s.title;return o;}));sel.value=p.sheet;
+    $("srBox").hidden=false;$("srMsg").textContent=p.title+(p.suggested_header_row?" - suggested header row: "+p.suggested_header_row:"");srRender(p);}
+  catch(e){$("srMsg").textContent="";$("srMsg").append(el("span",e.message,"warn"));}}
+$("srLoad").onclick=()=>{$("srH").value="";$("srD").value="";srLoad();};
+$("srSheet").onchange=()=>{$("srH").value="";$("srD").value="";srLoad($("srSheet").value);};
+$("srH").oninput=$("srD").oninput=srMark;
+$("srMap").onclick=async()=>{const out=$("srOut");out.replaceChildren(el("p","Checking...","muted"));
+  try{const r=await srCall({action:"map",url:$("srUrl").value.trim(),sheet:$("srSheet").value,header_row:+$("srH").value,data_start_row:+$("srD").value});
+    const t=el("table",undefined,"pv"),h=el("tr");["Col","Heading","Status","Source fields"].forEach(x=>h.append(el("th",x)));t.append(h);
+    r.columns.forEach(c=>{const tr=el("tr");tr.append(el("td",c.letter),el("td",c.heading||"(empty)"),
+      el("td",!c.usable?(c.merged==="continuation"?"merged - skipped":"empty"):(c.mapped?"mapped":"not mapped"),c.mapped?"ok":""),
+      el("td",c.sources.join(", ")));t.append(tr);});
+    out.replaceChildren(el("p","Header row "+r.header_row+", data starts at row "+r.data_start_row+" (sheet: "+r.sheet+")","muted"),
+      ...r.warnings.map(w=>el("div","! "+w,"warn")),t);
+    if(r.first_data_rows.length){const d=el("table",undefined,"pv"),dh=el("tr");dh.append(el("th","Row"));r.columns.forEach(c=>dh.append(el("th",c.letter)));d.append(dh);
+      r.first_data_rows.forEach(x=>{const tr=el("tr");tr.append(el("th",String(x.row)));x.cells.forEach(v=>tr.append(el("td",v)));d.append(tr);});
+      out.append(el("p","First data rows:","muted"),d);}
+  }catch(e){out.replaceChildren(el("div",e.message,"warn"));}};
 show();
 </script></body></html>
