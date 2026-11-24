@@ -22,8 +22,18 @@ EMIS, school name, district, tehsil, markaz, level, wing, type, area, enrollment
 
 Each `column_mappings` row stores: `target_heading`, `normalized_heading`, `source_table`, `source_field`, `match_rule` (for example `emis_exact:emis;priority=1`), `enabled`.
 
-## Excluded by default
-Bank and IBAN fields, FTF account fields, caregiver CNIC and phone numbers, private-school owner and principal CNIC and phone numbers. A sheet shared in a group must not receive these. Add any of them deliberately, one at a time.
+## Field coverage
+Per the department's decision, every available column of the four school tables is mappable (heading = column name or a common alias), including contact fields such as `ecce_caregiver_cell_no`. Technical columns (`id`, `created_at`, `updated_at`, `sr_no`) are not mapped.
+
+## Disabled by default (`enabled = false`)
+Bank and IBAN fields (`bank_name`, `bank_address`, `branch_code`, `iban_no`, `ftf_bank_name`, `ftf_bank_branch`, `ftf_iban_account_no`) and `ecce_caregiver_cnic`, in all three school tables. Turn one on with:
+
+```sql
+update public.column_mappings set enabled = true where source_field = 'iban_no';
+```
+
+## Staff mapping
+Staff data (head teacher name, cell number, etc.) lives in the A-I-DB HR project and is not mapped yet.
 
 ## Known gaps
-- `piema_schools` has no enrollment mapping yet (column not confirmed).
+- Staff mapping pending (see above). Private schools excluded from the first release.
